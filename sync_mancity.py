@@ -13,7 +13,7 @@ TEAM_ID = 65  # Manchester City
 SEASON = 2025
 
 # List of competitions codes (add more if needed)
-COMPETITIONS = ["PL", "FAC", "EFL", "CL", "CS"]
+COMPETITIONS = ["PL", "CL"]
 
 def google_calendar_service():
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
