@@ -1,34 +1,31 @@
 from __future__ import print_function
 import datetime
 import requests
-import os.path
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+import json
+import os
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 
 # Google Calendar API setup
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 def google_calendar_service():
-    creds = None
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open("token.json", "w") as token:
-            token.write(creds.to_json())
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS")
+    if not creds_json:
+        raise ValueError("Missing GOOGLE_CREDENTIALS environment variable")
+    creds_info = json.loads(creds_json)
+    creds = ServiceAccountCredentials.from_service_account_info(creds_info, scopes=SCOPES)
     return build("calendar", "v3", credentials=creds)
+
 
 # Fetch Manchester City matches from football-data.org
 def fetch_matches():
+    api_key = os.environ.get("FOOTBALL_DATA_API_KEY")
+    if not api_key:
+        raise ValueError("Missing FOOTBALL_DATA_API_KEY environment variable")
     url = "https://api.football-data.org/v4/teams/65/matches?season=2025"  # 65 = Man City
-    headers = {"X-Auth-Token": "4c1b6dbafb2846209a8f7a7353944c79"}
+    headers = {"X-Auth-Token": api_key}
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     return response.json()["matches"]
