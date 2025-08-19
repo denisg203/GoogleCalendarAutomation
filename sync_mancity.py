@@ -35,7 +35,7 @@ def fetch_matches():
 
     url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
     season = current_season()
-    querystring = {"team": "50", "season": str(season)}  # Man City
+    querystring = {"team": "50", "season": "2024"}  # Man City
 
     headers = {
         "X-RapidAPI-Key": api_key,
