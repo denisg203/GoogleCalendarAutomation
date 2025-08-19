@@ -24,7 +24,7 @@ jobs:
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: python cleaner.py
+        run: python sync_mancity.py
 
       # Optional: send email if success
       - name: Send success email
