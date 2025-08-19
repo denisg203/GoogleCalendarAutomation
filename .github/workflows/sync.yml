@@ -23,7 +23,7 @@ jobs:
       - name: Run sync script
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          RAPIDAPI_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: python sync_mancity.py
 
       # Optional: send email if success
