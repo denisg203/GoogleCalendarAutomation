@@ -1,67 +1,46 @@
-import os
-import json
-import time
 from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 from googleapiclient.errors import HttpError
-from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 def google_calendar_service():
-    creds_json = os.environ.get("GOOGLE_CREDENTIALS")
-    if not creds_json:
-        raise ValueError("Missing GOOGLE_CREDENTIALS environment variable")
-    creds_info = json.loads(creds_json)
-    creds = ServiceAccountCredentials.from_service_account_info(creds_info, scopes=SCOPES)
+    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
     return build("calendar", "v3", credentials=creds)
 
-def force_clean_calendar(service, calendar_id="primary"):
-    deleted_count = 0
+def delete_synced_events(service, calendar_id="primary"):
+    page_token = None
+    count = 0
+
     while True:
-        page_token = None
-        events_to_delete = []
+        events_result = service.events().list(
+            calendarId=calendar_id,
+            pageToken=page_token,
+            maxResults=2500,
+            singleEvents=True,
+            orderBy="startTime"
+        ).execute()
 
-        while True:
-            try:
-                events_result = service.events().list(
-                    calendarId=calendar_id,
-                    pageToken=page_token,
-                    maxResults=2500,
-                    singleEvents=True,
-                    orderBy="startTime"
-                ).execute()
-            except HttpError as e:
-                print(f"⚠️ Error fetching events: {e}")
-                return
+        events = events_result.get("items", [])
+        for e in events:
+            summary = e.get("summary", "")
+            description = e.get("description", "")
 
-            events = events_result.get("items", [])
-            for e in events:
-                summary = e.get("summary", "")
-                description = e.get("description", "")
-                colorId = e.get("colorId", "")
-                # Mark for deletion
-                if "Manchester City" in summary or description.startswith("match_id:") or colorId == "7":
-                    events_to_delete.append(e["id"])
+            # Match old sync events by either match_id in description or 'Manchester City' in summary
+            if ("match_id:" in description) or ("Manchester City" in summary):
+                try:
+                    service.events().delete(calendarId=calendar_id, eventId=e["id"]).execute()
+                    print(f"🗑️ Deleted: {summary}")
+                    count += 1
+                except HttpError as ex:
+                    print(f"⚠️ Error deleting {summary}: {ex}")
 
-            page_token = events_result.get("nextPageToken")
-            if not page_token:
-                break
+        page_token = events_result.get("nextPageToken")
+        if not page_token:
+            break
 
-        if not events_to_delete:
-            break  # nothing left to delete
-
-        for event_id in events_to_delete:
-            try:
-                service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
-                deleted_count += 1
-            except HttpError as e:
-                print(f"⚠️ Failed to delete event {event_id}: {e}")
-
-        print(f"Deleted {len(events_to_delete)} events. Waiting for Google to update...")
-        time.sleep(5)  # wait to ensure calendar cache is updated
-
-    print(f"\n✅ Total events deleted: {deleted_count}")
+    print(f"\n✅ Deleted {count} synced events.")
 
 if __name__ == "__main__":
     service = google_calendar_service()
-    force_clean_calendar(service)
+    delete_synced_events(service)
