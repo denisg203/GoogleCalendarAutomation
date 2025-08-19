@@ -34,7 +34,7 @@ def fetch_matches():
         raise ValueError("Missing RAPIDAPI_KEY environment variable")
 
     url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
-    season=current_season()
+    season = current_season()
     querystring = {"team": "50", "season": str(season)}  # Man City
 
     headers = {
@@ -42,11 +42,18 @@ def fetch_matches():
         "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
     }
 
-    response = requests.get(url, headers=headers, params=querystring)
-    response.raise_for_status()
-    data = response.json()
-    return data["response"]  # array of fixtures
-
+    try:
+        response = requests.get(url, headers=headers, params=querystring)
+        if response.status_code == 403:
+            print("⚠️ 403 Forbidden! Response body from API:")
+            print(response.text)  # This will show why it’s forbidden
+            raise Exception("API request forbidden. Check key, host, or plan limits.")
+        response.raise_for_status()
+        data = response.json()
+        return data["response"]
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️ Request failed: {e}")
+        raise
 
 def fetch_calendar_events(service, calendar_id="primary"):
     events_result = service.events().list(
