@@ -1,15 +1,17 @@
-from __future__ import print_function
-import datetime
-import requests
-import json
 import os
+import json
+import datetime
+import time
+import requests
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 
-# Google Calendar API setup
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
+# -------------------------
+# Google Calendar setup
+# -------------------------
 def google_calendar_service():
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     if not creds_json:
@@ -18,64 +20,76 @@ def google_calendar_service():
     creds = ServiceAccountCredentials.from_service_account_info(creds_info, scopes=SCOPES)
     return build("calendar", "v3", credentials=creds)
 
-
-# Fetch Manchester City matches from football-data.org
+# -------------------------
+# Fetch Manchester City matches
+# -------------------------
 def fetch_matches():
     api_key = os.environ.get("FOOTBALL_DATA_API_KEY")
     if not api_key:
         raise ValueError("Missing FOOTBALL_DATA_API_KEY environment variable")
-    url = "https://api.football-data.org/v4/teams/65/matches?season=2025"  # 65 = Man City
+    url = "https://api.football-data.org/v4/teams/65/matches?season=2025"
     headers = {"X-Auth-Token": api_key}
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     return response.json()["matches"]
 
-# Get existing events from Google Calendar (only ones created by this sync, i.e., with numeric IDs)
+# -------------------------
+# Fetch existing calendar events
+# -------------------------
 def fetch_calendar_events(service, calendar_id="primary"):
-    events_result = service.events().list(
-        calendarId=calendar_id,
-        maxResults=2500,
-        singleEvents=True,
-        orderBy="startTime"
-    ).execute()
-    return events_result.get("items", [])
+    events = []
+    page_token = None
+    while True:
+        try:
+            result = service.events().list(
+                calendarId=calendar_id,
+                maxResults=2500,
+                singleEvents=True,
+                orderBy="startTime",
+                pageToken=page_token
+            ).execute()
+        except HttpError as e:
+            print(f"⚠️ Error fetching events: {e}")
+            break
+        events.extend(result.get("items", []))
+        page_token = result.get("nextPageToken")
+        if not page_token:
+            break
+    return events
 
-# Sync football-data matches into Google Calendar
-def sync_matches(service, matches, calendar_id="primary"):
-    # Build a dict of match_id -> match data
+# -------------------------
+# Sync matches intelligently with retry
+# -------------------------
+def sync_matches(service, matches, calendar_id="primary", retries=3, delay=3):
     match_map = {str(m["id"]): m for m in matches}
-
-    # Get existing events
     events = fetch_calendar_events(service, calendar_id)
-    # Map match_id to actual Google Calendar event ID
+
     existing_event_map = {}
     for e in events:
-        # Only consider events we created (optional: you can check a prefix in summary)
-        summary = e.get("summary", "")
-        for m_id, m in match_map.items():
-            home = m["homeTeam"]["name"]
-            away = m["awayTeam"]["name"]
-            if f"{home} vs {away}" in summary:
-                existing_event_map[m_id] = e["id"]
-                break
+        desc = e.get("description", "")
+        if desc.startswith("match_id:"):
+            m_id = desc.split("match_id:")[-1].strip()
+            existing_event_map[m_id] = e["id"]
+        elif e.get("colorId") == "7" and "Manchester City" in e.get("summary", ""):
+            try:
+                service.events().delete(calendarId=calendar_id, eventId=e["id"]).execute()
+                print(f"🗑️ Deleted leftover event: {e.get('summary')}")
+            except HttpError:
+                pass
 
-    # Step 1: Add or update matches
     for match_id, m in match_map.items():
         home = m["homeTeam"]["name"]
         away = m["awayTeam"]["name"]
         status = m["status"]
 
-        if status == "CANCELLED":
-            # Delete if exists
-            if match_id in existing_event_map:
-                try:
-                    service.events().delete(calendarId=calendar_id, eventId=existing_event_map[match_id]).execute()
-                    print(f"🗑️ Deleted (cancelled): {home} vs {away}")
-                except Exception as e:
-                    print(f"⚠️ Error deleting {home} vs {away}: {e}")
+        if status == "CANCELLED" and match_id in existing_event_map:
+            try:
+                service.events().delete(calendarId=calendar_id, eventId=existing_event_map[match_id]).execute()
+                print(f"🗑️ Deleted cancelled match: {home} vs {away}")
+            except HttpError as e:
+                print(f"⚠️ Error deleting {home} vs {away}: {e}")
             continue
 
-        # Build event
         start_dt = datetime.datetime.fromisoformat(m["utcDate"].replace("Z", "+00:00"))
         end_dt = start_dt + datetime.timedelta(hours=2)
         title = f"{home} vs {away}"
@@ -87,34 +101,32 @@ def sync_matches(service, matches, calendar_id="primary"):
             "start": {"dateTime": start_dt.isoformat(), "timeZone": "Europe/London"},
             "end": {"dateTime": end_dt.isoformat(), "timeZone": "Europe/London"},
             "colorId": "7",
+            "description": f"match_id:{match_id}"
         }
 
-        try:
-            if match_id in existing_event_map:
-                # Update existing event
-                service.events().update(
-                    calendarId=calendar_id,
-                    eventId=existing_event_map[match_id],
-                    body=event
-                ).execute()
-                print(f"🔄 Updated: {title}")
-            else:
-                # Insert new event (let Google assign ID)
-                service.events().insert(calendarId=calendar_id, body=event).execute()
-                print(f"✅ Added: {title}")
-        except HttpError as e:
-            print(f"⚠️ Error syncing {title}: {e}")
-
-    # Step 2: Remove stale events (in calendar but not in football-data)
-    stale_ids = set(existing_event_map.keys()) - set(match_map.keys())
-    for stale_id in stale_ids:
-        try:
-            service.events().delete(calendarId=calendar_id, eventId=existing_event_map[stale_id]).execute()
-            print(f"🗑️ Deleted stale event with ID {stale_id}")
-        except Exception as e:
-            print(f"⚠️ Error deleting stale event {stale_id}: {e}")
+        for attempt in range(retries):
+            try:
+                if match_id in existing_event_map:
+                    service.events().update(
+                        calendarId=calendar_id,
+                        eventId=existing_event_map[match_id],
+                        body=event
+                    ).execute()
+                    print(f"🔄 Updated: {title}")
+                else:
+                    service.events().insert(calendarId=calendar_id, body=event).execute()
+                    print(f"✅ Added: {title}")
+                break  # success, exit retry loop
+            except HttpError as e:
+                print(f"⚠️ Attempt {attempt+1} failed for {title}: {e}")
+                time.sleep(delay)
+        else:
+            print(f"❌ Failed to sync {title} after {retries} attempts.")
 
 if __name__ == "__main__":
     service = google_calendar_service()
+    print("⚽ Fetching matches...")
     matches = fetch_matches()
+    print("📅 Syncing matches with retries...")
     sync_matches(service, matches)
+    print("\n🎉 Done! Calendar is up to date.")
