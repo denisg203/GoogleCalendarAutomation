@@ -1,3 +1,4 @@
+import datetime
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
@@ -7,9 +8,9 @@ def google_calendar_service():
     creds = Credentials.from_authorized_user_file("token.json", SCOPES)
     return build("calendar", "v3", credentials=creds)
 
-def delete_synced_events(service, calendar_id="primary"):
+def deep_clean_calendar(service, calendar_id="primary"):
     page_token = None
-    count = 0
+    total_deleted = 0
 
     while True:
         events_result = service.events().list(
@@ -21,20 +22,27 @@ def delete_synced_events(service, calendar_id="primary"):
         ).execute()
 
         events = events_result.get("items", [])
+
         for e in events:
-            desc = e.get("description", "")
-            if desc.startswith("match_id:"):   # Only delete our synced events
-                summary = e.get("summary", "")
-                service.events().delete(calendarId=calendar_id, eventId=e["id"]).execute()
-                print(f"🗑️ Deleted: {summary} ({desc})")
-                count += 1
+            summary = e.get("summary", "")
+            description = e.get("description", "")
+            extended_props = e.get("extendedProperties", {})
+
+            # Delete any event related to Manchester City (home or away)
+            if "Manchester City" in summary or "match_id:" in description or extended_props:
+                try:
+                    service.events().delete(calendarId=calendar_id, eventId=e["id"]).execute()
+                    total_deleted += 1
+                    print(f"🗑️ Deleted: {summary}")
+                except Exception as ex:
+                    print(f"⚠️ Failed to delete {summary}: {ex}")
 
         page_token = events_result.get("nextPageToken")
         if not page_token:
             break
 
-    print(f"\n✅ Deleted {count} synced events.")
+    print(f"\n✅ Deep-clean completed. Total events deleted: {total_deleted}")
 
 if __name__ == "__main__":
     service = google_calendar_service()
-    delete_synced_events(service)
+    deep_clean_calendar(service)
