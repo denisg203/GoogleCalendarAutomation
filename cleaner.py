@@ -22,11 +22,11 @@ def delete_synced_events(service, calendar_id="primary"):
 
         events = events_result.get("items", [])
         for e in events:
-            summary = e.get("summary", "")
-            # Delete events that contain Manchester City (home or away)
-            if "Manchester City" in summary:
+            desc = e.get("description", "")
+            if desc.startswith("match_id:"):   # Only delete our synced events
+                summary = e.get("summary", "")
                 service.events().delete(calendarId=calendar_id, eventId=e["id"]).execute()
-                print(f"🗑️ Deleted: {summary}")
+                print(f"🗑️ Deleted: {summary} ({desc})")
                 count += 1
 
         page_token = events_result.get("nextPageToken")
