@@ -1,7 +1,8 @@
+from __future__ import print_function
 import datetime
 import requests
-import json
 import os
+import json
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
@@ -38,35 +39,44 @@ def fetch_calendar_events(service, calendar_id="primary"):
     ).execute()
     return events_result.get("items", [])
 
-# Sync matches into Google Calendar
+# Sync football-data matches into Google Calendar
 def sync_matches(service, matches, calendar_id="primary"):
+    # Build a dict of match_id -> match data
     match_map = {str(m["id"]): m for m in matches}
 
-    # Fetch existing events
+    # Get existing events
     events = fetch_calendar_events(service, calendar_id)
-
-    # Build map: match_id -> event_id (from description)
+    # Map match_id to actual Google Calendar event ID
     existing_event_map = {}
     for e in events:
-        desc = e.get("description", "")
-        if desc.startswith("match_id:"):
-            m_id = desc.split("match_id:")[-1].strip()
-            existing_event_map[m_id] = e["id"]
+        summary = e.get("summary", "")
+        for m_id, m in match_map.items():
+            home = m["homeTeam"]["name"]
+            away = m["awayTeam"]["name"]
+            if f"{home} vs {away}" in summary:
+                existing_event_map[m_id] = e["id"]
+                break
 
+    # Step 1: Add or update matches
     for match_id, m in match_map.items():
         home = m["homeTeam"]["name"]
         away = m["awayTeam"]["name"]
         status = m["status"]
 
         if status == "CANCELLED":
+            # Delete if exists
             if match_id in existing_event_map:
                 try:
-                    service.events().delete(calendarId=calendar_id, eventId=existing_event_map[match_id]).execute()
+                    service.events().delete(
+                        calendarId=calendar_id,
+                        eventId=existing_event_map[match_id]
+                    ).execute()
                     print(f"🗑️ Deleted (cancelled): {home} vs {away}")
                 except Exception as e:
                     print(f"⚠️ Error deleting {home} vs {away}: {e}")
             continue
 
+        # Build event
         start_dt = datetime.datetime.fromisoformat(m["utcDate"].replace("Z", "+00:00"))
         end_dt = start_dt + datetime.timedelta(hours=2)
         title = f"{home} vs {away}"
@@ -78,11 +88,11 @@ def sync_matches(service, matches, calendar_id="primary"):
             "start": {"dateTime": start_dt.isoformat(), "timeZone": "Europe/London"},
             "end": {"dateTime": end_dt.isoformat(), "timeZone": "Europe/London"},
             "colorId": "7",
-            "description": f"match_id:{match_id}"
         }
 
         try:
             if match_id in existing_event_map:
+                # Update existing event
                 service.events().update(
                     calendarId=calendar_id,
                     eventId=existing_event_map[match_id],
@@ -90,17 +100,21 @@ def sync_matches(service, matches, calendar_id="primary"):
                 ).execute()
                 print(f"🔄 Updated: {title}")
             else:
+                # Insert new event
                 service.events().insert(calendarId=calendar_id, body=event).execute()
                 print(f"✅ Added: {title}")
         except HttpError as e:
             print(f"⚠️ Error syncing {title}: {e}")
 
-    # Remove stale events (exist in calendar but not in API)
+    # Step 2: Remove stale events
     stale_ids = set(existing_event_map.keys()) - set(match_map.keys())
     for stale_id in stale_ids:
         try:
-            service.events().delete(calendarId=calendar_id, eventId=existing_event_map[stale_id]).execute()
-            print(f"🗑️ Deleted stale event with match_id {stale_id}")
+            service.events().delete(
+                calendarId=calendar_id,
+                eventId=existing_event_map[stale_id]
+            ).execute()
+            print(f"🗑️ Deleted stale event with ID {stale_id}")
         except Exception as e:
             print(f"⚠️ Error deleting stale event {stale_id}: {e}")
 
