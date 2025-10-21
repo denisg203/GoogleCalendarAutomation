@@ -2,7 +2,7 @@ name: Sync Man City Fixtures
 
 on:
   schedule:
-    - cron: "0 10 * * 0"   # every Sunday 10:00 UTC
+    - cron: "0 10 * * 5"   # every Friday 10:00 UTC
   workflow_dispatch:       # allow manual trigger
 
 jobs:
