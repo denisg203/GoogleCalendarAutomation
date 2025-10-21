@@ -1,7 +1,6 @@
-🏟️ Manchester City Fixture Sync — Google Calendar Automation
+Manchester City Fixture Sync Google Calendar Automation
 
-This project automatically syncs Manchester City’s fixtures from the Football-Data.org API
- directly into Google Calendar using the Google Calendar API.
+This project automatically syncs Manchester City’s fixtures from the Football-Data.org API directly into Google Calendar using the Google Calendar API.
 
 It keeps your calendar up to date by adding, updating, or removing events whenever fixtures are announced, rescheduled, or canceled.
 
