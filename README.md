@@ -38,52 +38,6 @@ Run automatically every Friday using GitHub Actions.
 │       └── sync_mancity.yml  # GitHub Actions workflow
 └── README.md
 
-🔑 Environment Variables
-
-This project uses GitHub Secrets to securely manage credentials.
-
-Variable	Description
-GOOGLE_CREDENTIALS	JSON credentials for your Google Service Account
-FOOTBALL_DATA_API_KEY	API key from Football-Data.org
-
-GOOGLE_CALENDAR_ID	Calendar ID where events will be added (e.g., youremail@gmail.com)
-
-🛠️ Setup
-
-Clone this repository
-
-git clone https://github.com/yourusername/mancity-fixture-sync.git
-cd mancity-fixture-sync
-
-
-Install dependencies
-
-pip install -r requirements.txt
-
-
-Set up credentials
-
-Create a Google Cloud project and enable the Calendar API.
-
-Generate a Service Account key (JSON).
-
-Share your Google Calendar with the service account email (with “Make changes to events” permission).
-
-Add the credentials and API keys as GitHub Secrets.
-
-Trigger the workflow manually
-
-Go to the Actions tab → select Sync Man City Fixtures → click Run workflow.
-
-📅 Schedule
-
-The sync runs every Friday at 10:00 UTC by default.
-You can change this by editing the cron schedule in .github/workflows/sync_mancity.yml:
-
-on:
-  schedule:
-    - cron: "0 10 * * 5"   # every Friday 10:00 UTC
-
 🧠 Notes
 
 The script only manages events it created; it won’t modify unrelated calendar entries.
